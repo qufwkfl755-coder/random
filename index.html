@@ -14,6 +14,9 @@
   
   <!-- Babel CDN (브라우저에서 JSX를 변환하기 위해 필요) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- canvas-confetti (축포 애니메이션 라이브러리) -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 </head>
 <body>
   <div id="root"></div>
@@ -270,6 +273,36 @@
         }
       }, [isRacing]);
 
+      // 결과 발표 시 축포 애니메이션 실행
+      useEffect(() => {
+        if (result) {
+          const duration = 3 * 1000;
+          const animationEnd = Date.now() + duration;
+          const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 100 };
+
+          const randomInRange = (min, max) => Math.random() * (max - min) + min;
+
+          const interval = setInterval(function() {
+            const timeLeft = animationEnd - Date.now();
+
+            if (timeLeft <= 0) {
+              return clearInterval(interval);
+            }
+
+            const particleCount = 50 * (timeLeft / duration);
+            // 양쪽에서 축포 터트리기
+            confetti(Object.assign({}, defaults, { 
+              particleCount,
+              origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 }
+            }));
+            confetti(Object.assign({}, defaults, { 
+              particleCount,
+              origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 }
+            }));
+          }, 250);
+        }
+      }, [result]);
+
       return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-800 p-4 font-sans">
           <div className="max-w-4xl w-full flex flex-col items-center">
@@ -363,23 +396,23 @@
                   골인 지점: {finishedCount} / {activeIds.length}
                 </div>
               )}
-            </div>
 
-            {result && (
-              <div className="mt-8 w-full max-w-sm transform animate-in fade-in zoom-in">
-                <div className="bg-white border-4 border-indigo-600 rounded-3xl p-8 shadow-2xl text-center relative">
-                  <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600"></div>
-                  <h2 className="text-sm font-bold text-indigo-500 mb-2 uppercase tracking-widest">Selected Presenter</h2>
-                  <div className="text-6xl font-black text-slate-900 mb-4">{result.id}번</div>
-                  <button 
-                    onClick={startRace}
-                    className="bg-indigo-50 text-indigo-700 px-6 py-2 rounded-xl font-bold hover:bg-indigo-100"
-                  >
-                    다시 달리기
-                  </button>
+              {/* 중앙에 크게 표시되는 결과 오버레이 */}
+              {result && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] rounded-xl animate-in fade-in duration-500">
+                  <div className="bg-white border-4 border-indigo-600 rounded-3xl p-10 shadow-[0_0_60px_rgba(79,70,229,0.5)] text-center relative transform transition-all animate-in zoom-in duration-300">
+                    <h2 className="text-xl font-bold text-indigo-500 mb-2 tracking-widest">당첨! 발표자</h2>
+                    <div className="text-8xl font-black text-slate-900 mb-8">{result.id}번</div>
+                    <button 
+                      onClick={startRace}
+                      className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-700 text-xl shadow-lg hover:shadow-indigo-500/50 transition-all active:scale-95 w-full"
+                    >
+                      다시 달리기
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="mt-8 flex gap-6 text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-white/50 px-6 py-2 rounded-full border border-slate-100">
               <div className="flex items-center gap-1">💥 3초 내 회복</div>
