@@ -1,0 +1,373 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+const App = () => {
+  const canvasRef = useRef(null);
+  const [isRacing, setIsRacing] = useState(false);
+  const [result, setResult] = useState(null);
+  const [finishedCount, setFinishedCount] = useState(0);
+  const [showSettings, setShowSettings] = useState(false);
+  
+  // 설정 관련 상태
+  const [inputMode, setInputMode] = useState('auto');
+  const [numStudents, setNumStudents] = useState(20);
+  const [customIdsInput, setCustomIdsInput] = useState("1, 2, 3, 4, 5");
+  const [activeIds, setActiveIds] = useState([]);
+
+  // UI Constants
+  const FINISH_LINE_X = 750;
+  const START_LINE_X = 60;
+  const CANVAS_WIDTH = 850;
+  const CANVAS_HEIGHT = 650;
+
+  const studentsRef = useRef([]);
+  const rankingsRef = useRef([]);
+  const animationRef = useRef(null);
+
+  const currentCount = activeIds.length || 1;
+  const laneHeight = (CANVAS_HEIGHT - 100) / currentCount;
+
+  const parseIds = (input) => {
+    return input
+      .split(/[\s,]+/)
+      .filter(item => item.trim() !== "")
+      .slice(0, 40);
+  };
+
+  // 학생 초기화
+  const initStudents = (ids) => {
+    const students = [];
+    const boosterTiers = [1.1, 1.2, 1.3, 1.4]; // 10% ~ 40% 증가 배율
+
+    ids.forEach((id, i) => {
+      students.push({
+        id: id,
+        x: START_LINE_X,
+        y: 60 + i * laneHeight,
+        speed: 0.4 + Math.random() * 0.2, // 기초 속도 조정 (20~35초 완주 타겟)
+        status: 'running', 
+        statusTimer: 0,
+        finished: false,
+        history: [], 
+        // 학생마다 고유한 부스터 파워 부여 (10% ~ 40% 중 하나)
+        boosterPower: boosterTiers[Math.floor(Math.random() * boosterTiers.length)],
+        color: `hsl(${(i * (360 / ids.length)) % 360}, 65%, 55%)`
+      });
+    });
+    studentsRef.current = students;
+    rankingsRef.current = [];
+    setFinishedCount(0);
+    setResult(null);
+  };
+
+  const update = () => {
+    let allFinished = true;
+    const currentStudents = studentsRef.current;
+
+    currentStudents.forEach((s) => {
+      if (s.finished) return;
+      allFinished = false;
+
+      // 위치 기록 저장 (잔상용)
+      s.history.push({ x: s.x, y: s.y });
+      if (s.history.length > 8) s.history.shift();
+
+      if (s.statusTimer > 0) {
+        s.statusTimer--;
+        if (s.statusTimer === 0) {
+          // 넘어진 후 40% 확률로만 각성(부스터) 발동
+          if (s.status === 'tripped' && Math.random() < 0.4) {
+            s.status = 'awakened';
+            // 부스터 지속 시간: 최대 3초 (60~180 프레임)
+            s.statusTimer = 60 + Math.floor(Math.random() * 120); 
+          } else {
+            s.status = 'running';
+          }
+        }
+      } else {
+        const rand = Math.random();
+        if (rand < 0.0018) {
+          s.status = 'tripped';
+          // 멈춤 상태: 최소 1초 ~ 최대 3초 (절대 3초를 넘지 않음)
+          s.statusTimer = 60 + Math.floor(Math.random() * 120); 
+        } else if (rand < 0.0025) {
+          s.status = 'tired';
+          s.statusTimer = 80 + Math.random() * 80;
+        }
+      }
+
+      if (s.status === 'running') {
+        s.speed += (Math.random() - 0.5) * 0.03;
+        s.speed = Math.max(0.35, Math.min(s.speed, 0.85)); 
+        s.x += s.speed;
+      } else if (s.status === 'awakened') {
+        // 학생별 고유 부스터 배율 적용 (1.1 ~ 1.4)
+        s.x += s.speed * s.boosterPower;
+      } else if (s.status === 'tired') {
+        s.x += s.speed * 0.4;
+      }
+
+      if (s.x >= FINISH_LINE_X) {
+        s.x = FINISH_LINE_X;
+        s.finished = true;
+        rankingsRef.current.push(s);
+        setFinishedCount(prev => prev + 1);
+      }
+    });
+
+    draw();
+
+    if (!allFinished) {
+      animationRef.current = requestAnimationFrame(update);
+    } else {
+      setIsRacing(false);
+      const loser = rankingsRef.current[rankingsRef.current.length - 1];
+      setResult(loser);
+    }
+  };
+
+  const draw = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.fillStyle = '#f8fafc'; 
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // 트랙 레인
+    ctx.strokeStyle = '#f1f5f9';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= activeIds.length; i++) {
+      const y = 50 + i * laneHeight;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_WIDTH, y); ctx.stroke();
+    }
+
+    // 선 그리기
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.beginPath(); ctx.moveTo(START_LINE_X, 50); ctx.lineTo(START_LINE_X, CANVAS_HEIGHT - 50); ctx.stroke();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = '#fca5a5'; 
+    ctx.beginPath(); ctx.moveTo(FINISH_LINE_X, 50); ctx.lineTo(FINISH_LINE_X, CANVAS_HEIGHT - 50); ctx.stroke();
+    ctx.setLineDash([]);
+
+    studentsRef.current.forEach((s) => {
+      const radius = Math.min(laneHeight * 0.4, 12);
+      
+      // 잔상 효과 (부스터 상태일 때)
+      if (s.status === 'awakened') {
+        s.history.forEach((pos, idx) => {
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, radius * (idx / s.history.length), 0, Math.PI * 2);
+          ctx.fillStyle = s.color.replace(')', `, ${idx / 15})`); 
+          ctx.fill();
+        });
+      }
+
+      // 부스터 오라 효과 (배율에 따라 크기 차이 발생)
+      if (s.status === 'awakened') {
+        const auraSize = radius + (s.boosterPower - 1) * 20; // 1.1이면 작게, 1.4면 크게
+        ctx.save();
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#f59e0b';
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, auraSize, 0, Math.PI * 2);
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(s.x - radius - 5, s.y + (Math.random() - 0.5) * 10, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // 캐릭터 본체
+      ctx.fillStyle = s.color;
+      ctx.shadowBlur = s.status === 'awakened' ? 8 : 4;
+      ctx.shadowColor = s.status === 'awakened' ? '#f59e0b' : 'rgba(0,0,0,0.1)';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // 상태 아이콘
+      ctx.textAlign = 'center';
+      if (s.status === 'tripped') {
+        ctx.font = '18px serif';
+        ctx.fillText("💥", s.x - 25, s.y - 5);
+      } else if (s.status === 'tired') {
+        ctx.font = '18px serif';
+        ctx.fillText("💦", s.x - 22, s.y - 5);
+      } else if (s.status === 'awakened') {
+        ctx.font = '22px serif';
+        ctx.fillText("🔥", s.x - 30, s.y - 5);
+      }
+
+      // 번호 표시
+      ctx.fillStyle = 'white';
+      ctx.font = `bold ${radius > 10 ? '11px' : '9px'} sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(s.id, s.x, s.y);
+      
+      // 순위 기록
+      if (s.finished) {
+        const rank = rankingsRef.current.indexOf(s) + 1;
+        ctx.fillStyle = '#64748b';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${rank}위`, s.x + radius + 8, s.y);
+      }
+    });
+  };
+
+  const startRace = () => {
+    if (isRacing) return;
+    initStudents(activeIds);
+    setIsRacing(true);
+  };
+
+  useEffect(() => {
+    let ids = [];
+    if (inputMode === 'auto') {
+      for (let i = 1; i <= numStudents; i++) ids.push(i.toString());
+    } else {
+      ids = parseIds(customIdsInput);
+    }
+    setActiveIds(ids);
+  }, [inputMode, numStudents, customIdsInput]);
+
+  useEffect(() => {
+    initStudents(activeIds);
+    draw();
+    return () => cancelAnimationFrame(animationRef.current);
+  }, [activeIds]);
+
+  useEffect(() => {
+    if (isRacing) {
+      animationRef.current = requestAnimationFrame(update);
+    }
+  }, [isRacing]);
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 text-slate-800 p-4 font-sans">
+      <div className="max-w-4xl w-full flex flex-col items-center">
+        
+        <header className="w-full flex justify-between items-center mb-6 px-4">
+          <div className="flex-1"></div>
+          <div className="text-center">
+            <h1 className="text-3xl font-black text-slate-900 flex items-center justify-center gap-3">
+              🏃‍♂️ 운명의 레이스
+            </h1>
+            <p className="text-slate-500 font-medium text-sm">마지막 꼴찌가 발표자로 선정됩니다!</p>
+          </div>
+          <div className="flex-1 flex justify-end">
+            <button 
+              onClick={() => setShowSettings(!showSettings)}
+              className={`p-2 rounded-full transition-colors ${showSettings ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-slate-200 text-slate-600'}`}
+              title="설정"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </div>
+        </header>
+
+        {showSettings && (
+          <div className="w-full mb-6 p-6 bg-white rounded-2xl border border-slate-200 shadow-lg animate-in fade-in slide-in-from-top-2">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg">⚙️ 경주 참여자 설정</h3>
+              <div className="flex bg-slate-100 p-1 rounded-lg">
+                <button 
+                  onClick={() => setInputMode('auto')}
+                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${inputMode === 'auto' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  자동 생성
+                </button>
+                <button 
+                  onClick={() => setInputMode('manual')}
+                  className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${inputMode === 'manual' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  수동 입력
+                </button>
+              </div>
+            </div>
+
+            {inputMode === 'auto' ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-bold text-slate-600 w-24">학생 수</span>
+                  <input 
+                    type="range" min="2" max="30" value={numStudents} 
+                    onChange={(e) => setNumStudents(parseInt(e.target.value))}
+                    className="flex-1 accent-indigo-600"
+                  />
+                  <span className="text-lg font-black text-indigo-600 w-12 text-right">{numStudents}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <textarea 
+                  value={customIdsInput}
+                  onChange={(e) => setCustomIdsInput(e.target.value)}
+                  placeholder="예: 3, 7, 12, 15, 20"
+                  className="w-full h-24 p-3 border border-slate-200 rounded-xl outline-none text-sm font-mono"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="relative bg-white p-1 rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+          <canvas 
+            ref={canvasRef} 
+            width={CANVAS_WIDTH} 
+            height={CANVAS_HEIGHT}
+            className="rounded-xl"
+          />
+          
+          {!isRacing && finishedCount === 0 && (
+            <div className="absolute inset-0 bg-white/40 flex items-center justify-center backdrop-blur-[1px]">
+              <button 
+                onClick={startRace}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-12 rounded-2xl text-2xl transition-all shadow-xl active:scale-95 shadow-indigo-200"
+              >
+                경주 시작
+              </button>
+            </div>
+          )}
+
+          {isRacing && (
+            <div className="absolute top-4 right-4 bg-white/90 px-4 py-2 rounded-full border border-slate-200 shadow-sm font-bold text-xs text-slate-600 flex items-center">
+              <span className="w-2 h-2 bg-red-500 rounded-full animate-ping mr-2"></span>
+              골인 지점: {finishedCount} / {activeIds.length}
+            </div>
+          )}
+        </div>
+
+        {result && (
+          <div className="mt-8 w-full max-w-sm transform animate-in fade-in zoom-in">
+            <div className="bg-white border-4 border-indigo-600 rounded-3xl p-8 shadow-2xl text-center relative">
+              <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600"></div>
+              <h2 className="text-sm font-bold text-indigo-500 mb-2 uppercase tracking-widest">Selected Presenter</h2>
+              <div className="text-6xl font-black text-slate-900 mb-4">{result.id}번</div>
+              <button 
+                onClick={startRace}
+                className="bg-indigo-50 text-indigo-700 px-6 py-2 rounded-xl font-bold hover:bg-indigo-100"
+              >
+                다시 달리기
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-8 flex gap-6 text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-white/50 px-6 py-2 rounded-full border border-slate-100">
+          <div className="flex items-center gap-1">💥 3초 내 회복</div>
+          <div className="flex items-center gap-1 text-orange-500">🔥 10~40% 가변 부스터! (최대 3초)</div>
+          <div className="flex items-center gap-1 text-indigo-600">🏁 꼴찌가 당첨</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default App;
